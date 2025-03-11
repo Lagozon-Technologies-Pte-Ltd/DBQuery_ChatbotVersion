@@ -3,7 +3,7 @@ import os
 from google.cloud import bigquery
 
 # Set the environment variable correctly
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'Cloud_service.json'
+GOOGLE_APPLICATION_CREDENTIALS_JSON = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 
 # Initialize the BigQuery client
 client = bigquery.Client()
