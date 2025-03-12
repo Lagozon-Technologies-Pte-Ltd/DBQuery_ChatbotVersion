@@ -124,6 +124,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+Cloud_service.json
 env/
 .config/
 venv/
