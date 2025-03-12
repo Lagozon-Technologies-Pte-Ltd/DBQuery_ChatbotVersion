@@ -99,7 +99,7 @@ class BigQuerySQLDatabase(SQLDatabase):
                 schema_info += f"Error getting schema for table {table_name}: {e}\n"
 
         return schema_info
-db = BigQuerySQLDatabase("Cloud_service.json")
+db = BigQuerySQLDatabase(GOOGLE_APPLICATION_CREDENTIALS)
 
 table_info = db.get_table_info()
 #Save table_info to a text file
@@ -111,7 +111,7 @@ print("Table info saved successfully to table_info.txt")
 def get_chain(question, _messages, selected_model, selected_subject='Demo'):
     llm = ChatOpenAI(model=selected_model, temperature=0)
 
-    db = BigQuerySQLDatabase("Cloud_service.json")  # Use the correct class
+    db = BigQuerySQLDatabase(GOOGLE_APPLICATION_CREDENTIALS)  # Use the correct class
 
     print("Generate Query Starting")
     generate_query = create_sql_query_chain(llm, db, final_prompt)
