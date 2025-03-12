@@ -40,7 +40,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import configure
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'Cloud_service.json'
+GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 client = bigquery.Client()
 def create_bigquery_uri(project_id, dataset_id):
     """Creates a BigQuery URI string."""
