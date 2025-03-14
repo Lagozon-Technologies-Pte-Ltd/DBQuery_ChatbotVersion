@@ -2,12 +2,24 @@
 import os
 from google.cloud import bigquery
 
+# rama changes 
+from google.oauth2 import service_account
+
+# Load JSON credentials from environment variable
+json_creds = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")  # Renamed for clarity
+credentials = service_account.Credentials.from_service_account_info(
+    json.loads(json_creds)
+)
+client = bigquery.Client(credentials=credentials)
+
+
+
 # Set the environment variable correctly
-GOOGLE_APPLICATION_CREDENTIALS_JSON = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+#GOOGLE_APPLICATION_CREDENTIALS_JSON = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 
 # Initialize the BigQuery client
-client = bigquery.Client()
-
+# client = bigquery.Client()
+# rama changes end
 # Define the query
 sql_query = """
 WITH MonthlySales AS (
