@@ -61,13 +61,6 @@ jobs:
         uses: azure/login@v1
         with:
          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Create service account JSON
-        run: |
-          echo "${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}" > Cloud_service.json
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-
-
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v2
         id: deploy-to-webapp
@@ -75,5 +68,4 @@ jobs:
           app-name: 'lz-dbquery-chatbot'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_67E9BB2FEB204B94896247B9130F849C }}
-          package: .
 
