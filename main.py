@@ -356,6 +356,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         return JSONResponse(content={"error": f"Error transcribing audio: {str(e)}"}, status_code=500)
 
 @app.get("/get_questions")
+@app.get("/get_questions/")
 async def get_questions(subject: str):
     """
     Fetches questions from a CSV file in Azure Blob Storage based on the selected subject.
@@ -648,6 +649,7 @@ def display_table_with_styles(data, table_name, page_number, records_per_page):
     return styled_table.to_html()
 
 @app.get("/get_table_data")
+@app.get("/get_table_data/")
 async def get_table_data(
     table_name: str = Query(...),
     page_number: int = Query(1),
