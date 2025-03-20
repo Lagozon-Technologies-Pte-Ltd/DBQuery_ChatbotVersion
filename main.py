@@ -46,6 +46,7 @@ except Exception as e:
     print(f"Error initializing BlobServiceClient: {e}")
     # Handle the error appropriately, possibly exiting the application
     raise  # Re-raise the exception to prevent the app from starting
+
 class ChartRequest(BaseModel):
     """
     Pydantic model for chart generation requests.
@@ -353,7 +354,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
     except Exception as e:
         return JSONResponse(content={"error": f"Error transcribing audio: {str(e)}"}, status_code=500)
-@app.get("/get_questions")
+
 @app.get("/get_questions/")
 async def get_questions(subject: str):
     """
@@ -645,7 +646,7 @@ def display_table_with_styles(data, table_name, page_number, records_per_page):
                 }
             ])
     return styled_table.to_html()
-    
+
 @app.get("/get_table_data")
 @app.get("/get_table_data/")
 async def get_table_data(
