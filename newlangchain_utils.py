@@ -1,208 +1,556 @@
-import os
-import pandas as pd
-from google.cloud import bigquery
 
-from dotenv import load_dotenv
-load_dotenv()
+const loadingDiv = document.getElementById('loading');
+let tableName;
+let isRecording = false;
+let mediaRecorder;
+let audioChunks = [];
+let originalButtonHTML = ""; // Store the original button HTML
+async function loadTableColumns(table_name) {
+    console.log("Loading columns for table:", table_name); // Debug statement
+    const selectedTable = table_name;
 
-#table_details_prompt = os.getenv('TABLE_DETAILS_PROMPT')
-# Change if your schema is different
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2")
-# LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
-# LANGCHAIN_ENDPOINT=os.getenv("LANGCHAIN_ENDPOINT")
+    if (!selectedTable) {
+        alert("Please select a table.");
+        return;
+    }
 
+    try {
+        const response = await fetch(`/get-table-columns/?table_name=${selectedTable}`);
+        const data = await response.json();
 
-from langchain_community.utilities.sql_database import SQLDatabase
-#from langchain.agents import create_sql_agent
-#from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
-from langchain.chains import create_sql_query_chain
-from langchain_openai import ChatOpenAI
-from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
-from langchain.memory import ChatMessageHistory
-from operator import itemgetter
-from google.oauth2 import service_account
-import json
-from urllib.parse import quote_plus
+        if (response.ok && data.columns) {
+            const xAxisDropdown = document.getElementById("x-axis-dropdown");
+            const yAxisDropdown = document.getElementById("y-axis-dropdown");
 
+            // Reset dropdown options
+            xAxisDropdown.innerHTML = '<option value="" disabled selected>Select X-Axis</option>';
+            yAxisDropdown.innerHTML = '<option value="" disabled selected>Select Y-Axis</option>';
 
-from operator import itemgetter
+            // Populate options
+            data.columns.forEach((column) => {
+                const xOption = document.createElement("option");
+                const yOption = document.createElement("option");
 
-from langchain_core.output_parsers import StrOutputParser
+                xOption.value = column;
+                xOption.textContent = column;
 
-from langchain_core.runnables import RunnablePassthrough
-from langchain_openai import ChatOpenAI
+                yOption.value = column;
+                yOption.textContent = column;
 
-from table_details import table_chain as select_table
-from prompts import final_prompt, answer_prompt, few_shot_prompt
-from table_details import get_table_details , get_tables , itemgetter , create_extraction_chain_pydantic, Table 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+                xAxisDropdown.appendChild(xOption);
+                yAxisDropdown.appendChild(yOption);
+            });
+        } else {
+            alert("Failed to load columns.");
+        }
+    } catch (error) {
+        console.error("Error loading table columns:", error);
+        alert("An error occurred while fetching columns.");
+    }
+}
+// Add event listener for "Enter" key press in the input field
+document.getElementById("chat_user_query").addEventListener("keyup", function (event) {
+    // Number 13 is the "Enter" key on the keyboard
+    if (event.key === "Enter") {
+        // Cancel the default action, if needed
+        event.preventDefault();
+        // Trigger the button element with a click
+        sendMessage();
+    }
+});
 
-import configure
-# os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'Cloud_service.json'
-# client = bigquery.Client()
-def create_bigquery_uri(project_id, dataset_id):
-    """Creates a BigQuery URI string."""
-    return f"{project_id}.{dataset_id}"
+async function generateChart() {
+    const xAxisDropdown = document.getElementById("x-axis-dropdown");
+    const yAxisDropdown = document.getElementById("y-axis-dropdown");
+    const chartTypeDropdown = document.getElementById("chart-type-dropdown");
 
+    const xAxis = xAxisDropdown.value;
+    const yAxis = yAxisDropdown.value;
+    const chartType = chartTypeDropdown.value;
+    selectedTable = tableName;
+    if (!selectedTable || !xAxis || !yAxis || !chartType) {
+        alert("Please select all required fields.");
+        return;
+    }
 
-class BigQuerySQLDatabase(SQLDatabase):
-    def __init__(self):
-        try:
-            # Create credentials dictionary from environment variables
-            credentials_info = {
-                "type": os.getenv('GOOGLE_CREDENTIALS_TYPE'),
-                "project_id": os.getenv('GOOGLE_CREDENTIALS_PROJECT_ID'),
-                "private_key_id": os.getenv('GOOGLE_CREDENTIALS_PRIVATE_KEY_ID'),
-                "private_key":"-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDln+0curmestQu\nEjLJWLY5YkCdmhlEZfWvCapN41hO6mS6nwVeYQw4ICP8ltbdsAZrsmzVgtf3GC+G\ngL99wG5WeEd/F1XPTemg8mKbMAf67nGWMc3z5yV3U4sGEnDglCVh1gHhDQC/px2K\nWopLVC/F46zQ+ERj8RjFCXExuZrzCExuFvRrT6dalDOqH8XFLeonnLoqJkPVgjvW\nfuuihW5pMiOfGyXksabfOc1GAzt4Ixbp0rsUL10ZqTPz+FOQ4WeJcs1slgRSQxHC\nmnTKx5kAT8MHEChGzhX9/BHDDzjTZL5isEybWjbKuUEcqCpc1FajFMT8NSDayifz\nEtHnxHhjAgMBAAECggEAAJYeec2r1d5/1Ttx3F3qf59TUJ/9qjwZu0SQQf2DOSvy\nuLHbYYGcUupehJ3LIBmiTIxyvEKrwibe3eJdLo5jQqZccY3OZbnN93T+8lHAMs4F\njkpRKj/WB0dF1uImLDXaTAPfM1lezVsgO71ESZ6L53fKBYrSXGLP/bVOfbcJTuwn\nFjAgNdpj2xYl+G9B+qkuNBHZ7uVnQ3w2l4zvRAWIIwtRj1qjCe7ynac9xizkrEMI\nae1WCKCZQbJGOvOl4Mu00cVvfspwzHfQZwkn+dVjN2+HNQTbzsM14CzDTmXGjD6e\n5/s3OYj7Tt4lV/PIVsf/y/zz3mtVV5D73yWQiZbiNQKBgQD9HfRuKnrKFrnyTy31\nRkSqZTfZh2smRqiR4RZssgZUCKD5GZtQ3/opWkh2HSBdQY8tLkxiu7wJ9WKmHMVV\nnUANqcBxXwsaLdMVEt4C7Y3aav8owIn+rLxD0BuQkjbX+7cx0UTnNhmg97HpYJr5\nNV+xF2LyviTemPpviWI2W6N9FwKBgQDoPXjR+L8ow0Sxhu5IjLWWp86X4KXQOCuY\n/Qbk+L3ibM8DRpgZ+nwH9zDWcGIS3Kk5t8pIQSYbthYBugkekUvtCt2dRyxIPLK9\nXnaCJFSbtpd1aaII/YF6Gp0yaap0B3+x9L4w1UrvLHK3xUcVdeb3DDCj0IVAqBg9\nqtLoktbmlQKBgQC1cTqdmh/pK79hnjbAov1n9CTD71n01yPRZrvPcRIuPP0/c4at\nw9CswgY9fQWNNAixh4XEJPVXYiq0Dt26UH3xDWVhH5Ny0bSFX7/781QDZT3Bdbu1\n7xcJuW15BgcAbnVU5cFxyIs4ozZKqDCPQh51cOFCRuFhG+IyABaCBtC8QwKBgHvw\nam0sIeBALYXMa5geN76Z+WAGTJdNkr7Hsgk6UiPnS6cE4qFikxSxL8gRG9XTGyCp\nW/OpiQva5e2v+bPteKadWN3ZoOFAO2diZT5Y4ypijHvljsrbd2DRmTjROV1IrzYq\nVeG7wozXnLVEPAZQ8JzBTafu3V4/Fwi6BGqICtXtAoGAb1QEQxRfq87q2q7DxIbm\nlxooi07TB1eevVw6r2qNRQQ5DHF+vb65Tw9ZV3E0g8/fJRD2gFC+yxgfI3iUVyyh\nIBBjKgCJOgp6zOS1L+RTNQswXxxLw+5B9j/oArHZ24j7YtKPLr+bcTNypzXn8dh8\n1U/HqFUTo1bsy8Pu35MXyco=\n-----END PRIVATE KEY-----",
-                "client_email": os.getenv('GOOGLE_CREDENTIALS_CLIENT_EMAIL'),
-                "client_id": os.getenv('GOOGLE_CREDENTIALS_CLIENT_ID'),
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/bqserviceacc%40prateekproject-450509.iam.gserviceaccount.com",
-                "universe_domain": "googleapis.com"
+    try {
+        const response = await fetch("/generate-chart/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                table_name: selectedTable,
+                x_axis: xAxis,
+                y_axis: yAxis,
+                chart_type: chartType,
+            }),
+        });
+
+        const data = await response.json();
+        if (response.ok && data.chart) {
+            const chartContainer = document.getElementById("chart-container");
+            chartContainer.innerHTML = ""; // Clear previous chart
+            const chartDiv = document.createElement("div");
+            chartContainer.appendChild(chartDiv);
+
+            // Render the chart using Plotly
+            Plotly.newPlot(chartDiv, JSON.parse(data.chart).data, JSON.parse(data.chart).layout);
+        } else {
+            alert(data.error || "Failed to generate chart.");
+        }
+    } catch (error) {
+        console.error("Error generating chart:", error);
+        alert("An error occurred while generating the chart.");
+    }
+}
+function changePage(tableName, pageNumber, recordsPerPage) {
+    if (pageNumber < 1) return;
+
+    // Corrected: Using template literals to construct the URL
+    fetch(`/get_table_data?table_name=${tableName}&page_number=${pageNumber}&records_per_page=${recordsPerPage}`)
+        .then(response => response.json())
+        .then(data => {
+            const tableDiv = document.getElementById(`${tableName}_table`);
+            if (tableDiv) {
+                tableDiv.innerHTML = data.table_html;
             }
+            updatePaginationLinks(tableName, pageNumber, data.total_pages, recordsPerPage);
+        })
+        .catch(error => {
+            console.error('Error fetching table data:', error);
+        });
+}
+function openTab(evt, tabName) {
+    let i, tabcontent, tablinks;
+    tabcontent = document.getElementsByClassName("tabcontent");
+    for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+    }
+    tablinks = document.getElementsByClassName("tablinks");
+    for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+    }
+    document.getElementById(tabName).style.display = "block";
+    evt.currentTarget.className += " active";
+}
 
-            # Load credentials from dictionary
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_info,
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+// Optionally, you can set the default active tab using JavaScript:
+document.addEventListener("DOMContentLoaded", function () {
+    document.getElementsByClassName("tablinks")[0].click(); // Open the first tab by default
+});
 
-            self.project_id = credentials_info["project_id"]
-            self.client = bigquery.Client(credentials=credentials, project=self.project_id)
 
-        except Exception as e:
-            raise ValueError(f"Error loading credentials: {e}")
-    def run(self, command: str):
-        """Executes a SQL query and returns results as JSON."""
-        try:
-            query_job = self.client.query(command)
-            results = query_job.result()
-            return [dict(row.items()) for row in results]
-        except Exception as e:
-            return f"Error executing SQL command: {e}"
+async function sendMessage() {
+    const userQueryInput = document.getElementById("chat_user_query");
+    const chatMessages = document.getElementById("chat-messages");
+    const typingIndicator = document.getElementById("typing-indicator");
+    const queryResultsDiv = document.getElementById('query-results');
 
-    def get_table_names(self):
-        """Returns all available tables in the project."""
-        tables_list = []
-        datasets = list(self.client.list_datasets())
-        for dataset in datasets:
-            dataset_id = dataset.dataset_id
-            tables = self.client.list_tables(dataset_id)
-            for table in tables:
-                tables_list.append(f"{dataset_id}.{table.table_id}")
-        return tables_list
+    let userMessage = userQueryInput.value.trim();
+    if (!userMessage) return;
 
-    def get_table_info(self, table_names=None):
-        """Returns schema information for given tables."""
-        if table_names is None:
-            table_names = self.get_table_names()
+    // Append user message
+    chatMessages.innerHTML += `
+        <div class="message user-message">
+            <div class="message-content">${userMessage}</div>
+        </div>
+    `;
+    userQueryInput.value = ""; // Clear input field
+    chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom
 
-        schema_info = ""
-        for table_name in table_names:
-            try:
-                dataset_id, table_id = table_name.split(".")
-                table_ref = self.client.dataset(dataset_id).table(table_id)
-                table = self.client.get_table(table_ref)
+    // Show typing indicator
+    typingIndicator.style.display = "flex";
+    queryResultsDiv.style.display = "block";
 
-                schema_info += f"\nTable: {table_name}\nColumns:\n"
-                for column in table.schema:
-                    schema_info += f"  {column.name} ({column.field_type}) {'NULLABLE' if column.is_nullable else 'NOT NULLABLE'}\n"
-            except Exception as e:
-                schema_info += f"Error getting schema for table {table_name}: {e}\n"
+    try {
+        const formData = new FormData();
+        formData.append('user_query', userMessage);
+        formData.append('section', document.getElementById('section-dropdown').value);
 
-        return schema_info
-db = BigQuerySQLDatabase()
+        const response = await fetch("/submit", { method: "POST", body: formData });
 
-table_info = db.get_table_info()
-#Save table_info to a text file
-with open("table_info.txt", "w") as file:
-    file.write(str(table_info))
+        if (!response.ok) throw new Error("Failed to fetch response");
 
-print("Table info saved successfully to table_info.txt")
-# @cache_resource
-def get_chain(question, _messages, selected_model, selected_subject='Demo'):
-    llm = ChatOpenAI(model=selected_model, temperature=0)
+        const data = await response.json();
+        typingIndicator.style.display = "none";
 
-    db = BigQuerySQLDatabase()  # Use the correct class
+        let botResponse = "";
 
-    print("Generate Query Starting")
-    generate_query = create_sql_query_chain(llm, db, final_prompt)
-    SQL_Statement = generate_query.invoke({"question": question, "messages": _messages})
-    print(f"Generated SQL Statement before execution: {SQL_Statement}")
+        // **If it's an insight message (NO SQL Query), handle it separately**
+        if (!data.query) {
+            botResponse = data.chat_response || "I couldn't find any insights for this query.";
+        } else {
+            // **If it's an SQL Query, handle separately**
+            document.getElementById("sql-query-content").textContent = data.query;
+            botResponse = data.chat_response || "Here's what I found:";
+        }
 
-    # Override QuerySQLDataBaseTool validation
-    class CustomQuerySQLDatabaseTool(QuerySQLDataBaseTool):
-        def __init__(self, db):
-            if not isinstance(db, SQLDatabase):
-                raise ValueError("db must be an instance of SQLDatabase")
-            super().__init__(db=db)
+        chatMessages.innerHTML += `
+            <div class="message ai-message">
+                <div class="message-content">
+                    ${botResponse}
+                </div>
+            </div>
+        `;
 
-    execute_query = CustomQuerySQLDatabaseTool(db=db)
-    
-    chain = (
-        RunnablePassthrough.assign(table_names_to_use=lambda _: db.get_table_names()) |  # Get table names
-        RunnablePassthrough.assign(query=generate_query).assign(
-            result=itemgetter("query")
-        )
-    )
+        // Scroll chat to bottom
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (data.tables) {
+            tableName = data.tables[0].table_name;
+            loadTableColumns(tableName)
+            updatePageContent(data);
 
-    return chain, db.get_table_names(), SQL_Statement, db
 
-# def read_table_info(file_path):
-#     """
-#     Reads the table schema from a text file as a single string.
-#     """
-#     try:
-#         with open(file_path, 'r', encoding='utf-8') as file:
-#             return file.read()  # Read full content as a string
-#     except Exception as e:
-#         print(f"Error reading table info: {e}")
-#         return ""
-# table_info_text = read_table_info("table_info.txt")  # Load the entire text of the file
+        }
+        // Update table, visualization, and query details if applicable
+    } catch (error) {
+        console.error("Error:", error);
+        typingIndicator.style.display = "none";
+        alert("Error processing request.");
+    }
+}
+document.getElementById("chat-mic-button").addEventListener("click", toggleRecording);
+// Handle Mic Recording (Modify toggleRecording function)
+async function toggleRecording() {
+    const micButton = document.getElementById("chat-mic-button");
 
-def invoke_chain(question, messages, selected_model, selected_subject):
-    try:
-        # if not is_relevant(question, table_info):
-        #     return "I am DBQuery, a generative AI tool developed at Lagozon Technologies for database query generation. Please ask me queries related to your database.", [], {}, None
-        print('Model used:', selected_model)
-        history = create_history(messages)
-        chain, chosen_tables, SQL_Statement, db = get_chain(question, history.messages, selected_model, selected_subject)
-        print(f"Generated SQL Statement: {SQL_Statement}")
-        SQL_Statement = SQL_Statement.replace("SQL Query:", "").strip()
+    if (!isRecording) {
+        // Store the original button HTML before changing it
+        originalButtonHTML = micButton.innerHTML;
 
-        response = chain.invoke({"question": question, "top_k": 3, "messages": history.messages})
-        print("Question:", question)
-        print("Response:", response)
-        print("Chosen tables:", chosen_tables)
+        // Start recording
+        micButton.innerHTML = "Recording... (Click to stop)";
 
-        tables_data = {}
-        for table in chosen_tables:
-            query = response["query"]
-            print(f"Executing SQL Query: {query}")
+        isRecording = true;
+        audioChunks = []; // Reset recorded data
 
-            result_json = db.run(query)
-            df = pd.DataFrame(result_json)  # Convert result to DataFrame
-            tables_data[table] = df
-            break
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
 
-        return response, chosen_tables, tables_data, db
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
 
-    except Exception as e:
-        print("Error:", e)
-        return "Insufficient information to generate SQL Query.", [], {}, None
+            mediaRecorder.onstop = async () => {
+                isRecording = false; // Allow next recording
 
-def create_history(messages):
-    history = ChatMessageHistory()
-    for message in messages:
-        if message["role"] == "user":
-            history.add_user_message(message["content"])
-        else:
-            history.add_ai_message(message["content"])
-    return history
+                if (audioChunks.length === 0) {
+                    alert("No audio recorded.");
+                    return;
+                }
 
-def escape_single_quotes(input_string):
-    return input_string.replace("'", "''")
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append("file", audioBlob, "recording.webm");
+
+                try {
+                    console.log("Sending audio file to server...");
+                    const response = await fetch("/transcribe-audio/", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const data = await response.json();
+                    console.log("Server Response:", data);
+
+                    if (data.transcription) {
+                        document.getElementById("chat_user_query").value = data.transcription;
+                    } else {
+                        alert("Failed to transcribe audio.");
+                    }
+                } catch (error) {
+                    console.error("Error transcribing audio:", error);
+                    alert("An error occurred while transcribing.");
+                }
+
+                // Restore the original button HTML (image inside button)
+                micButton.innerHTML = originalButtonHTML;
+            };
+
+            mediaRecorder.start();
+            console.log("Recording started...");
+        } catch (error) {
+            console.error("Microphone access denied or error:", error);
+            alert("Microphone access denied. Please allow microphone permissions.");
+            isRecording = false;
+        }
+    } else {
+        // Stop recording
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            console.log("Recording stopped.");
+        }
+    }
+}
+
+// Attach event listener to button
+document.getElementById("chat-mic-button").addEventListener("click", toggleRecording);
+// document.getElementById("section-dropdown")?.addEventListener("change", (event) => {
+//     fetchQuestions(event.target.value)
+// });
+
+// Event listener for table dropdown change (if it exists)
+document.getElementById("table-dropdown")?.addEventListener("change", (event) => {
+    document.getElementById("download-button").style.display = event.target.value ? "block" : "none";
+});
+/**
+ *
+ */
+/**
+ * Resets the session state by making a POST request to the backend.
+ */
+function resetSession() {
+    fetch('/reset-session', { method: 'POST' })
+        .then(response => {
+            if (response.ok) {
+                alert("Session reset successfully!");
+                // Optionally, reload the page to ensure all UI elements are reset
+                location.reload();
+            } else {
+                alert("Failed to reset session.");
+            }
+        })
+        .catch(error => console.error("Error resetting session:", error));
+}
+
+async function fetchQuestions(selectedSection) {
+    const questionDropdown = document.getElementById("faq-questions"); // Get datalist
+    questionDropdown.innerHTML = ''; // Clear previous options
+
+    if (selectedSection) {
+        try {
+            const response = await fetch(`/get_questions?subject=${selectedSection}`, );
+            const data = await response.json();
+
+            if (data.questions && data.questions.length > 0) {
+                data.questions.forEach(question => {
+                    const option = document.createElement("option");
+                    option.value = question; // Set the value directly
+                    questionDropdown.appendChild(option);
+                });
+            } else {
+                console.warn(`No questions found for section: ${selectedSection}`);
+            }
+        } catch (error) {
+            console.error("Error fetching questions:", error);
+        }
+    }
+}
+
+
+function clearQuery() {
+    const userQueryInput = document.getElementById("chat_user_query"); // changed id
+    userQueryInput.value = ""
+
+}
+/**
+ *
+ */
+function chooseExampleQuestion() {
+    const questionDropdown = document.getElementById("questions-dropdown");
+    const selectedQuestion = questionDropdown.options[questionDropdown.selectedIndex].text;
+    if (!selectedQuestion || selectedQuestion === "Select a Question") {
+        alert("Please select a question.");
+        return;
+    }
+    const userQueryInput = document.getElementById("chat_user_query"); // changed id
+    userQueryInput.value = selectedQuestion;
+}
+/**
+ *
+ */
+function updatePageContent(data) {
+    const userQueryDisplay = document.getElementById("user_query_display");
+    const sqlQueryContent = document.getElementById("sql-query-content"); // Get the modal content
+    const tablesContainer = document.getElementById("tables_container");
+    const xlsxbtn = document.getElementById("xlsx-btn"); // Excel button container
+    const faqbtn =  document.getElementById("add-to-faqs-btn");
+    // Update user query text
+    userQueryDisplay.querySelector('span').textContent = data.user_query || "";
+
+    // Clear and update tables container
+    tablesContainer.innerHTML = "";
+    xlsxbtn.innerHTML = ""; // Clear Excel button container before adding new buttons
+    if (data.tables && data.tables.length > 0) {
+        data.tables.forEach((table) => {
+            const tableWrapper = document.createElement("div");
+
+            tableWrapper.innerHTML = `
+                <div id="${table.table_name}_table">${table.table_html}</div>
+                <div id="${table.table_name}_pagination"></div>
+                <div id="${table.table_name}_error"></div>
+            `;
+
+            tablesContainer.appendChild(tableWrapper);
+
+            // Create "Download Excel" button with spacing
+            const downloadButton = document.createElement("button");
+            downloadButton.id = `download-button-${table.table_name}`;
+            downloadButton.className = "download-btn";
+            downloadButton.innerHTML = `<img src="static/excel.png" alt="xlsx" class="excel-icon"> Download Excel`;
+            downloadButton.onclick = () => downloadSpecificTable(table.table_name);
+
+            xlsxbtn.appendChild(downloadButton);
+            // Add pagination
+            updatePaginationLinks(
+                table.table_name,
+                table.pagination.current_page,
+                table.pagination.total_pages,
+                table.pagination.records_per_page
+            );
+
+        });
+    } else {
+        tablesContainer.innerHTML = "<p>No tables to display.</p>";
+    }
+
+    // Add the "View SQL Query" button BELOW the Download Excel button
+    if (data.query) {
+        sqlQueryContent.textContent = data.query;
+
+        // Create "View SQL Query" button dynamically
+        const viewQueryBtn = document.createElement("button");
+        viewQueryBtn.textContent = "SQL Query";
+        viewQueryBtn.id = "view-sql-query-btn";
+        viewQueryBtn.onclick = showSQLQueryPopup;
+        viewQueryBtn.style.display = "block"; // Ensure button appears in a new line
+        const faqBtn = document.createElement("button");
+        faqBtn.textContent = "Add to FAQs";
+        faqBtn.id = "add-to-faqs-btn";
+        faqBtn.onclick = addToFAQs;
+        faqBtn.style.display = "block"; // Ensure button appears in a new line
+
+        xlsxbtn.appendChild(viewQueryBtn); // Append below the Excel download button
+        xlsxbtn.appendChild(faqBtn); // Append below the Excel download button
+    } else {
+        sqlQueryContent.textContent = "No SQL query available.";
+    }
+}
+/**
+ *
+ */
+function addToFAQs() {
+    let userQuery = document.querySelector("#user_query_display span").innerText;
+
+    if (!userQuery.trim()) {
+        document.getElementById("faq-message").innerText = "Query cannot be empty!";
+        return;
+    }
+
+    fetch('/add_to_faqs', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query: userQuery })
+    })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById("faq-message").innerText = data.message;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById("faq-message").innerText = "Failed to add query to FAQs!";
+        });
+}
+/**
+ * @param {any} tableName
+ */
+function downloadSpecificTable(tableName) {
+    // Corrected: Using template literals to construct the URL
+    const downloadUrl = `/download-table?table_name=${encodeURIComponent(tableName)}`;
+    window.location.href = downloadUrl;
+}
+/**
+ *
+ */
+function updatePaginationLinks(tableName, currentPage, totalPages, recordsPerPage) {
+    const paginationDiv = document.getElementById(`${tableName}_pagination`);
+    if (!paginationDiv) return;
+
+    paginationDiv.innerHTML = "";
+    const paginationList = document.createElement("ul");
+    paginationList.className = "pagination";
+
+    // Calculate start and end pages to display
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+
+    // Ensure at most 5 page numbers are shown
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    // Previous Button
+    const prevLi = document.createElement("li");
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<a href="javascript:void(0);" onclick="changePage('${tableName}', ${currentPage - 1}, ${recordsPerPage})" class="page-link">« Prev</a>`;
+    paginationList.appendChild(prevLi);
+
+    // Show "1 ..." if the startPage is greater than 1
+    if (startPage > 1) {
+        const firstPageLi = document.createElement("li");
+        firstPageLi.className = "page-item";
+        firstPageLi.innerHTML = `<a href="javascript:void(0);" onclick="changePage('${tableName}', 1, ${recordsPerPage})" class="page-link">1</a>`;
+        paginationList.appendChild(firstPageLi);
+
+        if (startPage > 2) {
+            const dotsLi = document.createElement("li");
+            dotsLi.className = "page-item disabled";
+            dotsLi.innerHTML = `<span class="page-link">...</span>`;
+            paginationList.appendChild(dotsLi);
+        }
+    }
+
+    // Page Numbers
+    for (let page = startPage; page <= endPage; page++) {
+        const pageLi = document.createElement("li");
+        pageLi.className = `page-item ${page === currentPage ? 'active' : ''}`;
+        pageLi.innerHTML = `<a href="javascript:void(0);" onclick="changePage('${tableName}', ${page}, ${recordsPerPage})" class="page-link">${page}</a>`;
+        paginationList.appendChild(pageLi);
+    }
+
+    // Show "... totalPages" if endPage is less than totalPages
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            const dotsLi = document.createElement("li");
+            dotsLi.className = "page-item disabled";
+            dotsLi.innerHTML = `<span class="page-link">...</span>`;
+            paginationList.appendChild(dotsLi);
+        }
+        const lastPageLi = document.createElement("li");
+        lastPageLi.className = "page-item";
+        lastPageLi.innerHTML = `<a href="javascript:void(0);" onclick="changePage('${tableName}', ${totalPages}, ${recordsPerPage})" class="page-link">${totalPages}</a>`;
+        paginationList.appendChild(lastPageLi);
+    }
+
+    // Next Button
+    const nextLi = document.createElement("li");
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<a href="javascript:void(0);" onclick="changePage('${tableName}', ${currentPage + 1}, ${recordsPerPage})" class="page-link">Next »</a>`;
+    paginationList.appendChild(nextLi);
+
+    paginationDiv.appendChild(paginationList);
+}
+// Function to show SQL query in popup
+function showSQLQueryPopup() {
+    const sqlQueryText = document.getElementById("sql-query-content").textContent;
+
+    if (!sqlQueryText.trim()) {
+        alert("No SQL query available.");
+        return;
+    }
+
+    document.getElementById("sql-query-content").textContent = sqlQueryText;
+    document.getElementById("sql-query-popup").style.display = "flex";
+    Prism.highlightAll(); // Apply syntax highlighting
+}
+
+// Function to close the popup
+function closeSQLQueryPopup() {
+    document.getElementById("sql-query-popup").style.display = "none";
+}
