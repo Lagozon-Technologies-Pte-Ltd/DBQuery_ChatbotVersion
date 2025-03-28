@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 from fastapi.staticfiles import StaticFiles
-
+from starlette.middleware.base import BaseHTTPMiddleware
 import plotly.graph_objects as go
 import plotly.express as px
 from langchain_openai import ChatOpenAI
@@ -27,8 +27,30 @@ from starlette.middleware.sessions import SessionMiddleware  # Correct import
 from azure.storage.blob import BlobServiceClient
 
 import uuid
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Log the request details
+        logging.info(f"Request: {request.method} {request.url}")
+        
+        # Call the next middleware or endpoint
+        response = await call_next(request)
+        
+        # Log the response details
+        logging.info(f"Response status: {response.status_code}")
+        
+        return response
+
+# Create FastAPI app
 app = FastAPI()
+
+# Add the middleware to the app
+app.add_middleware(LoggingMiddleware)
+
 app.add_middleware(SessionMiddleware, secret_key="your-secret-key")
 
 # Set up static files and templates
@@ -356,7 +378,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
         return JSONResponse(content={"error": f"Error transcribing audio: {str(e)}"}, status_code=500)
 
 @app.get("/get_questions")
-@app.get("/get_questions/")
 async def get_questions(subject: str):
     """
     Fetches questions from a CSV file in Azure Blob Storage based on the selected subject.
@@ -649,7 +670,6 @@ def display_table_with_styles(data, table_name, page_number, records_per_page):
     return styled_table.to_html()
 
 @app.get("/get_table_data")
-@app.get("/get_table_data/")
 async def get_table_data(
     table_name: str = Query(...),
     page_number: int = Query(1),
